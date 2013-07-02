@@ -1,0 +1,12 @@
+env = Environment()
+
+env['APP_TARGET'] = 'BasicWarp'
+env['APP_SOURCES'] = ['_TBOX_PREFIX_App.cpp']
+env['ASSETS'] = ['help.png']
+env['DEBUG'] = 1
+
+# Cinder-Warping
+env = SConscript('../../../scons/SConscript', exports = 'env')
+
+SConscript('../../../../../scons/SConscript', exports = 'env')
+
