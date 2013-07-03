@@ -108,25 +108,25 @@ public:
 	//! draws a warped texture
 	void				draw(const ci::gl::Texture &texture);
 	//! draws a specific area of a warped texture
-	void				draw(const ci::gl::Texture &texture, ci::Area &srcArea);
+	void				draw(const ci::gl::Texture &texture, const ci::Area &srcArea);
 	//! draws a specific area of a warped texture to a specific region
-	virtual void		draw(const ci::gl::Texture &texture, ci::Area &srcArea, ci::Rectf &destRect) = 0;
+	virtual void		draw(const ci::gl::Texture &texture, const ci::Area &srcArea, const ci::Rectf &destRect) = 0;
 
 	//! adjusts both the source area and destination rectangle so that they are clipped against the warp's content
 	bool				clip( ci::Area &srcArea, ci::Rectf &destRect ) const;
 
 	//! returns the coordinates of the specified control point
-	virtual ci::Vec2f	getControlPoint(size_t index) const;
+	virtual ci::Vec2f	getControlPoint(unsigned index) const;
 	//! sets the coordinates of the specified control point
-	virtual void		setControlPoint(size_t index, const ci::Vec2f &pos);
+	virtual void		setControlPoint(unsigned index, const ci::Vec2f &pos);
 	//! moves the specified control point 
-	virtual void		moveControlPoint(size_t index, const ci::Vec2f &shift);
+	virtual void		moveControlPoint(unsigned index, const ci::Vec2f &shift);
 	//! select one of the control points
-	virtual void		selectControlPoint(size_t index);
+	virtual void		selectControlPoint(unsigned index);
 	//! deselect the selected control point
 	virtual void		deselectControlPoint();
 	//! returns the index of the closest control point, as well as the distance in pixels
-	virtual size_t		findControlPoint(const ci::Vec2f &pos, float *distance) const ;
+	virtual unsigned		findControlPoint(const ci::Vec2f &pos, float *distance) const ;
 
 	//! set the width and height in pixels of the content of all warps
 	static void			setSize(const WarpList &warps, int w, int h) { setSize( warps, ci::Vec2i(w, h) ); }
@@ -186,7 +186,7 @@ protected:
 
 	float			mBrightness;
 
-	size_t			mSelected;
+	unsigned		mSelected;
 
 	//! Determines the number of horizontal and vertical control points
 	int				mControlsX;

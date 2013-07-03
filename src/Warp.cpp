@@ -55,15 +55,12 @@ Warp::~Warp(void)
 
 void Warp::draw(const gl::Texture &texture)
 {
-	Area srcArea( texture.getBounds() );
-	Rectf dstRect( getBounds() );
-	draw( texture, srcArea, dstRect );
+	draw( texture, texture.getBounds(), Rectf( getBounds() ) );
 }
 
-void Warp::draw(const gl::Texture &texture, Area &srcArea)
+void Warp::draw(const gl::Texture &texture, const Area &srcArea)
 {
-	Rectf dstRect( getBounds() );
-	draw( texture, srcArea, dstRect );
+	draw( texture, srcArea, Rectf( getBounds() ) );
 }
 
 bool Warp::clip( Area &srcArea, Rectf &destRect ) const
@@ -193,13 +190,13 @@ void Warp::setSize(const Vec2i &size)
 	mIsDirty = true;
 }
 
-Vec2f Warp::getControlPoint(size_t index) const
+Vec2f Warp::getControlPoint(unsigned index) const
 {
-	if( index >= mPoints.size() ) return Vec2f::zero();
+	if( index >= mPoints.size()) return Vec2f::zero();
 	return mPoints[index]; 
 }
 
-void Warp::setControlPoint(size_t index, const Vec2f &pos)
+void Warp::setControlPoint(unsigned index, const Vec2f &pos)
 {
 	if( index >= mPoints.size() ) return;
 	mPoints[index] = pos;
@@ -207,7 +204,7 @@ void Warp::setControlPoint(size_t index, const Vec2f &pos)
 	mIsDirty = true;
 }
 
-void Warp::moveControlPoint(size_t index, const Vec2f &shift)
+void Warp::moveControlPoint(unsigned index, const Vec2f &shift)
 {
 	if( index >= mPoints.size() ) return;
 	mPoints[index] += shift;
@@ -215,10 +212,9 @@ void Warp::moveControlPoint(size_t index, const Vec2f &shift)
 	mIsDirty = true;
 }
 
-void Warp::selectControlPoint(size_t index)
+void Warp::selectControlPoint(unsigned index)
 {
-	if( index >= mPoints.size() ) return;
-	if( index == mSelected ) return;
+	if( index >= mPoints.size() || index == mSelected ) return;
 
 	mSelected = index;
 	sSelectedTime = app::getElapsedSeconds();
@@ -226,17 +222,17 @@ void Warp::selectControlPoint(size_t index)
 
 void Warp::deselectControlPoint()
 {
-	mSelected = -1;
+	mSelected = -1; // since this is an unsigned int, actual value will be 'MAX_INTEGER'
 }
 
-size_t Warp::findControlPoint(const Vec2f &pos, float *distance) const
+unsigned Warp::findControlPoint(const Vec2f &pos, float *distance) const
 {
-	size_t index;
+	unsigned index;
 
 	// find closest control point
 	float dist = 10.0e6f;
 
-	for(size_t i=0;i<mPoints.size();i++) {
+	for(unsigned i=0;i<mPoints.size();i++) {
 		float d = pos.distance( getControlPoint(i) * mWindowSize );
 
 		if(d < dist){
@@ -252,9 +248,9 @@ size_t Warp::findControlPoint(const Vec2f &pos, float *distance) const
 
 void Warp::selectClosestControlPoint( const WarpList &warps, const Vec2i &position ) 
 {
-	WarpRef	warp;
-	size_t	i, index;
-	float	d, distance=10.0e6f;	
+	WarpRef		warp;
+	unsigned	i, index;
+	float		d, distance=10.0e6f;	
 
 	// find warp and distance to closest control point
 	for(WarpConstReverseIter itr=warps.rbegin();itr!=warps.rend();++itr) {
@@ -335,7 +331,7 @@ void Warp::writeSettings( const WarpList &warps, const DataTargetRef &target )
 	profile.setAttribute("name", "default");
 
 	// 
-	for(size_t i=0;i<warps.size();++i) {
+	for(unsigned i=0;i<warps.size();++i) {
 		// create <map>
 		XmlTree			map;
 		map.setTag("map");
@@ -418,10 +414,6 @@ bool Warp::handleKeyDown(WarpList &warps, KeyEvent event)
 		case KeyEvent::KEY_RIGHT:
 			// do not select another control point
 			break;
-		default:
-			// find and select closest control point
-			selectClosestControlPoint( warps, sMouse );
-			break;
 	}
 
 	return handled;
@@ -452,7 +444,7 @@ bool Warp::mouseMove(cinder::app::MouseEvent event)
 bool Warp::mouseDown(cinder::app::MouseEvent event)
 {
 	if(!sIsEditMode) return false;
-	if( mSelected >= mPoints.size() ) return false;
+	if(mSelected >= mPoints.size()) return false;
 
 	// calculate offset by converting control point from normalized to standard screen space
 	Vec2f p = ( getControlPoint( mSelected ) * mWindowSize );
@@ -464,7 +456,7 @@ bool Warp::mouseDown(cinder::app::MouseEvent event)
 bool Warp::mouseDrag(cinder::app::MouseEvent event)
 {
 	if(!sIsEditMode) return false;
-	if( mSelected >= mPoints.size() ) return false;
+	if(mSelected >= mPoints.size()) return false;
 
 	Vec2f m(event.getPos());
 	Vec2f p(m.x - mOffset.x, m.y - mOffset.y);
@@ -495,45 +487,60 @@ bool Warp::keyDown( KeyEvent event )
 	else return false;
 
 	// do not listen to key input if not selected
-	if( mSelected >= mPoints.size() ) return false;
+	if(mSelected >= mPoints.size()) return false;
 
 	switch( event.getCode() ) {
+		case KeyEvent::KEY_TAB:
+			// select the next or previous (+SHIFT) control point
+			if( event.isShiftDown() ) {
+				if(mSelected == 0) 
+					mSelected = (int) mPoints.size() - 1;
+				else 
+					--mSelected;
+				selectControlPoint( mSelected );
+			}
+			else { 
+				++mSelected;
+				if(mSelected >= mPoints.size()) mSelected = 0;
+				selectControlPoint( mSelected );
+			}
+			break;
 		case KeyEvent::KEY_UP: {
-			if( mSelected >= mPoints.size() ) return false;
+			if(mSelected >= mPoints.size()) return false;
 			float step = event.isShiftDown() ? 10.0f : 0.5f;
 			mPoints[mSelected].y -= step / mWindowSize.y;
 			mIsDirty = true; }
 			break;
 		case KeyEvent::KEY_DOWN: {
-			if( mSelected >= mPoints.size() ) return false;
+			if(mSelected >= mPoints.size()) return false;
 			float step = event.isShiftDown() ? 10.0f : 0.5f;
 			mPoints[mSelected].y += step / mWindowSize.y;
 			mIsDirty = true; }
 			break;
 		case KeyEvent::KEY_LEFT: {
-			if( mSelected >= mPoints.size() ) return false;
+			if(mSelected >= mPoints.size()) return false;
 			float step = event.isShiftDown() ? 10.0f : 0.5f;
 			mPoints[mSelected].x -= step / mWindowSize.x;
 			mIsDirty = true; }
 			break;
 		case KeyEvent::KEY_RIGHT: {
-			if( mSelected >= mPoints.size() ) return false;
+			if(mSelected >= mPoints.size()) return false;
 			float step = event.isShiftDown() ? 10.0f : 0.5f;
 			mPoints[mSelected].x += step / mWindowSize.x;
 			mIsDirty = true; }
 			break;
 		case KeyEvent::KEY_MINUS:
 		case KeyEvent::KEY_KP_MINUS:
-			if( mSelected >= mPoints.size() ) return false;
+			if(mSelected >= mPoints.size()) return false;
 			mBrightness = math<float>::max(0.0f, mBrightness - 0.01f);
 			break;
 		case KeyEvent::KEY_PLUS:
 		case KeyEvent::KEY_KP_PLUS:
-			if( mSelected >= mPoints.size() ) return false;
+			if(mSelected >= mPoints.size()) return false;
 			mBrightness = math<float>::min(1.0f, mBrightness + 0.01f);
 			break;
 		case KeyEvent::KEY_r:
-			if( mSelected >= mPoints.size() ) return false;
+			if(mSelected >= mPoints.size()) return false;
 			reset();
 			mIsDirty = true;
 			break;

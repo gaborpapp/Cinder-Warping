@@ -117,21 +117,23 @@ void WarpBilinear::reset()
 	mIsDirty = true;
 }
 
-void WarpBilinear::draw(const gl::Texture &texture, Area &srcArea, Rectf &destRect)
+void WarpBilinear::draw(const gl::Texture &texture, const Area &srcArea, const Rectf &destRect)
 {
 	gl::SaveTextureBindState state( texture.getTarget() );
 	
 	// clip against bounds
-	clip( srcArea, destRect );
+	Area	area = srcArea;
+	Rectf	rect = destRect;
+	clip( area, rect );
 
 	// set texture coordinates
 	float w = static_cast<float>( texture.getWidth() );
 	float h = static_cast<float>( texture.getHeight() );
 
 	if( texture.getTarget() == GL_TEXTURE_RECTANGLE_ARB )
-		setTexCoords( (float)srcArea.x1, (float)srcArea.y1, (float)srcArea.x2, (float)srcArea.y2 );
+		setTexCoords( (float)area.x1, (float)area.y1, (float)area.x2, (float)area.y2 );
 	else
-		setTexCoords( srcArea.x1 / w, srcArea.y1 / h, srcArea.x2 / w, srcArea.y2 / h );
+		setTexCoords( area.x1 / w, area.y1 / h, area.x2 / w, area.y2 / h );
 
 	// draw
 	texture.enableAndBind();
@@ -187,8 +189,7 @@ void WarpBilinear::end()
 	Area srcArea = mFbo.getBounds();
 	int32_t t = srcArea.y1; srcArea.y1 = srcArea.y2; srcArea.y2 = t;
 
-	Rectf dstRect( getBounds() );
-	draw( mFbo.getTexture(), srcArea, dstRect );
+	draw( mFbo.getTexture(), srcArea, Rectf( getBounds() ) );
 }
 
 void WarpBilinear::draw(bool controls)
@@ -223,7 +224,7 @@ void WarpBilinear::draw(bool controls)
 
 		if(controls) {
 			// draw control points
-			for(size_t i=0;i<mPoints.size();i++) 
+			for(unsigned i=0;i<mPoints.size();i++) 
 				drawControlPoint( getControlPoint(i) * mWindowSize, i == mSelected );
 		}
 	}
@@ -242,7 +243,7 @@ bool WarpBilinear::keyDown(KeyEvent event)
 	if( ! isEditModeEnabled() ) return false;
 
 	// do not listen to key input if not selected
-	if( mSelected >= mPoints.size() ) return false;
+	if(mSelected >= mPoints.size()) return false;
 
 	switch( event.getCode() ) {
 		case KeyEvent::KEY_F1:
@@ -268,19 +269,6 @@ bool WarpBilinear::keyDown(KeyEvent event)
 			if( !event.isShiftDown() ) 
 				setNumControlY(2*mControlsY-1);
 			else setNumControlY(mControlsY+1);
-			break;
-		case KeyEvent::KEY_TAB:
-			// select the next or previous (+SHIFT) control point
-			if( event.isShiftDown() ) {
-				if( mSelected == 0 )
-					mSelected = mPoints.size() - 1;
-				else
-					--mSelected;
-			}
-			else { 
-				++mSelected;
-				if(mSelected >= mPoints.size()) mSelected = 0;
-			}
 			break;
 		case KeyEvent::KEY_m:
 			// toggle between linear and curved mapping
@@ -646,7 +634,7 @@ Rectf WarpBilinear::getMeshBounds() const
 	Vec2f min = Vec2f::one();
 	Vec2f max = Vec2f::zero();
 
-	for(size_t i=0;i<mPoints.size();++i) {
+	for(unsigned i=0;i<mPoints.size();++i) {
 		min.x = math<float>::min( mPoints[i].x, min.x );
 		min.y = math<float>::min( mPoints[i].y, min.y );
 		max.x = math<float>::max( mPoints[i].x, max.x );
