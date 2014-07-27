@@ -427,6 +427,7 @@ void WarpBilinear::createMesh(int resolutionX, int resolutionY)
 	gl::VboMesh::Layout	layout;
 	layout.setStaticIndices();
 	layout.setStaticTexCoords2d();
+	layout.setStaticTexCoords2d( 1 );
 	layout.setDynamicPositions();
 
 	//
@@ -438,6 +439,7 @@ void WarpBilinear::createMesh(int resolutionX, int resolutionY)
 	int j = 0;
 	std::vector<uint32_t>	indices( numIndices );
 	std::vector<Vec2f>		texCoords( numVertices );
+	std::vector<Vec2f>		texCoords01( numVertices );
 	for(int x=0; x<resolutionX; ++x) {
 		for(int y=0; y<resolutionY; ++y) {
 			// index
@@ -448,13 +450,17 @@ void WarpBilinear::createMesh(int resolutionX, int resolutionY)
 				indices[i++] = (x+0) * resolutionY + (y+1);
 			}
 			// texCoords
-			float tx = lerp<float, float>( mX1, mX2, x / (float)(resolutionX-1) );
-			float ty = lerp<float, float>( mY1, mY2, y / (float)(resolutionY-1) );
-			texCoords[j++] = Vec2f(tx, ty );
+			float tx01 = x / (float)(resolutionX-1);
+			float ty01 = y / (float)(resolutionY-1);
+			float tx = lerp<float, float>( mX1, mX2, tx01 );
+			float ty = lerp<float, float>( mY1, mY2, ty01 );
+			texCoords[j] = Vec2f( tx, ty );
+			texCoords01[j++] = Vec2f( tx01, ty01 );
 		}
 	}
 	mVboMesh.bufferIndices( indices );
 	mVboMesh.bufferTexCoords2d( 0, texCoords );
+	mVboMesh.bufferTexCoords2d( 1, texCoords01 );
 
 	//
 	mIsDirty = true;
