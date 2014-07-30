@@ -1,0 +1,9 @@
+.DS_Store
+*.o
+*.app
+
+.sconsign.dblite
+
+*.sw[a-z]
+
+*.obj
