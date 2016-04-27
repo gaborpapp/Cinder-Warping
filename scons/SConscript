@@ -2,9 +2,6 @@ import os
 
 Import('env')
 
-# Cinder-OpenCV
-env = SConscript('../../Cinder-OpenCV/scons/SConscript', exports = 'env')
-
 _INCLUDES = [Dir('../include').abspath]
 
 _SOURCES = ['Warp.cpp', 'WarpBilinear.cpp',
