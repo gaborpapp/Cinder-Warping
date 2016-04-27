@@ -1,5 +1,5 @@
 /*
- Copyright (c) 2010-2013, Paul Houx - All rights reserved.
+ Copyright (c) 2010-2015, Paul Houx - All rights reserved.
  This code is intended for use with the Cinder C++ library: http://libcinder.org
 
  This file is part of Cinder-Warping.
@@ -19,13 +19,12 @@
  */
 
 #include "Warp.h"
-#include "WarpBilinear.h"
-#include "WarpPerspective.h"
-#include "WarpPerspectiveBilinear.h"
 
 #include "cinder/Xml.h"
-#include "cinder/app/AppBasic.h"
+#include "cinder/app/App.h"
 #include "cinder/gl/Texture.h"
+#include "cinder/gl/draw.h"
+#include "cinder/gl/scoped.h"
 
 using namespace ci;
 using namespace ci::app;
@@ -33,25 +32,24 @@ using namespace ci::app;
 namespace ph {
 namespace warping {
 
-bool	Warp::sIsEditMode = false;
-double	Warp::sSelectedTime = 0.0;
-ivec2	Warp::sMouse = ivec2( 0, 0 );
+std::atomic<bool> Warp::sIsEditMode{ false };
 
-Warp::Warp( WarpType type ) :
-mType( type ),
-mIsDirty( true ),
-mWidth( 640 ),
-mHeight( 480 ),
-mBrightness( 1.0f ),
-mSelected( -1 ), // since this is an unsigned int, actual value will be 'MAX_INTEGER'
-mControlsX( 2 ),
-mControlsY( 2 )
+Warp::Warp( WarpType type )
+    : mType( type )
+    , mIsDirty( true )
+    , mWidth( 640 )
+    , mHeight( 480 )
+    , mBrightness( 1.0f )
+    , mSelected( -1 )
+    , mControlsX( 2 )
+    , mControlsY( 2 )
+    , mLuminance( 0.5f )
+    , mGamma( 1.0f )
+    , mEdges( 0.0f )
+    , mExponent( 2.0f )
+    , mSelectedTime( 0 )
 {
 	mWindowSize = vec2( float( mWidth ), float( mHeight ) );
-}
-
-Warp::~Warp( void )
-{
 }
 
 void Warp::draw( const gl::Texture2dRef &texture )
@@ -120,15 +118,23 @@ bool Warp::clip( Area &srcArea, Rectf &destRect ) const
 	return clipped;
 }
 
-XmlTree	Warp::toXml() const
+XmlTree Warp::toXml() const
 {
-	XmlTree		xml;
+	XmlTree xml;
 	xml.setTag( "warp" );
 	switch( mType ) {
-	case BILINEAR: xml.setAttribute( "method", "bilinear" ); break;
-	case PERSPECTIVE: xml.setAttribute( "method", "perspective" ); break;
-	case PERSPECTIVE_BILINEAR: xml.setAttribute( "method", "perspectivebilinear" ); break;
-	default: xml.setAttribute( "method", "unknown" ); break;
+	case BILINEAR:
+		xml.setAttribute( "method", "bilinear" );
+		break;
+	case PERSPECTIVE:
+		xml.setAttribute( "method", "perspective" );
+		break;
+	case PERSPECTIVE_BILINEAR:
+		xml.setAttribute( "method", "perspectivebilinear" );
+		break;
+	default:
+		xml.setAttribute( "method", "unknown" );
+		break;
 	}
 	xml.setAttribute( "width", mControlsX );
 	xml.setAttribute( "height", mControlsY );
@@ -137,13 +143,42 @@ XmlTree	Warp::toXml() const
 	// add <controlpoint> tags (column-major)
 	std::vector<vec2>::const_iterator itr;
 	for( itr = mPoints.begin(); itr != mPoints.end(); ++itr ) {
-		XmlTree	cp;
+		XmlTree cp;
 		cp.setTag( "controlpoint" );
 		cp.setAttribute( "x", ( *itr ).x );
 		cp.setAttribute( "y", ( *itr ).y );
 
 		xml.push_back( cp );
 	}
+
+	// add <blend> parameters
+	XmlTree blend;
+	blend.setTag( "blend" );
+	blend.setAttribute( "exponent", mExponent );
+	{
+		XmlTree edges;
+		edges.setTag( "edges" );
+		edges.setAttribute( "left", mEdges.x );
+		edges.setAttribute( "top", mEdges.y );
+		edges.setAttribute( "right", mEdges.z );
+		edges.setAttribute( "bottom", mEdges.w );
+		blend.push_back( edges );
+
+		XmlTree gamma;
+		gamma.setTag( "gamma" );
+		gamma.setAttribute( "red", mGamma.x );
+		gamma.setAttribute( "green", mGamma.y );
+		gamma.setAttribute( "blue", mGamma.z );
+		blend.push_back( gamma );
+
+		XmlTree luminance;
+		luminance.setTag( "luminance" );
+		luminance.setAttribute( "red", mLuminance.x );
+		luminance.setAttribute( "green", mLuminance.y );
+		luminance.setAttribute( "blue", mLuminance.z );
+		blend.push_back( luminance );
+	}
+	xml.push_back( blend );
 
 	return xml;
 }
@@ -156,10 +191,38 @@ void Warp::fromXml( const XmlTree &xml )
 
 	// load control points
 	mPoints.clear();
-	for( XmlTree::ConstIter child = xml.begin( "controlpoint" ); child != xml.end(); ++child ) {
+	for( auto child = xml.begin( "controlpoint" ); child != xml.end(); ++child ) {
 		float x = child->getAttributeValue<float>( "x", 0.0f );
 		float y = child->getAttributeValue<float>( "y", 0.0f );
 		mPoints.push_back( vec2( x, y ) );
+	}
+
+	// load blend params
+	auto blend = xml.find( "blend" );
+	if( blend != xml.end() ) {
+		mExponent = blend->getAttributeValue<float>( "exponent", mExponent );
+
+		auto edges = blend->find( "edges" );
+		if( edges != blend->end() ) {
+			mEdges.x = edges->getAttributeValue<float>( "left", mEdges.x );
+			mEdges.y = edges->getAttributeValue<float>( "top", mEdges.y );
+			mEdges.z = edges->getAttributeValue<float>( "right", mEdges.z );
+			mEdges.w = edges->getAttributeValue<float>( "bottom", mEdges.w );
+		}
+
+		auto gamma = blend->find( "gamma" );
+		if( gamma != blend->end() ) {
+			mGamma.x = gamma->getAttributeValue<float>( "red", mGamma.x );
+			mGamma.y = gamma->getAttributeValue<float>( "green", mGamma.y );
+			mGamma.z = gamma->getAttributeValue<float>( "blue", mGamma.z );
+		}
+
+		auto luminance = blend->find( "luminance" );
+		if( luminance != blend->end() ) {
+			mLuminance.x = luminance->getAttributeValue<float>( "red", mLuminance.x );
+			mLuminance.y = luminance->getAttributeValue<float>( "green", mLuminance.y );
+			mLuminance.z = luminance->getAttributeValue<float>( "blue", mLuminance.z );
+		}
 	}
 
 	// reconstruct warp
@@ -170,14 +233,6 @@ void Warp::setSize( int w, int h )
 {
 	mWidth = w;
 	mHeight = h;
-
-	mIsDirty = true;
-}
-
-void Warp::setSize( const ivec2 &size )
-{
-	mWidth = size.x;
-	mHeight = size.y;
 
 	mIsDirty = true;
 }
@@ -209,7 +264,7 @@ void Warp::selectControlPoint( unsigned index )
 	if( index >= mPoints.size() || index == mSelected ) return;
 
 	mSelected = index;
-	sSelectedTime = app::getElapsedSeconds();
+	mSelectedTime = app::getElapsedSeconds();
 }
 
 void Warp::deselectControlPoint()
@@ -220,6 +275,9 @@ void Warp::deselectControlPoint()
 unsigned Warp::findControlPoint( const vec2 &pos, float *distance ) const
 {
 	unsigned index;
+
+	// store mouse position for later use in e.g. WarpBilinear::keyDown().
+	mMouse = pos;
 
 	// find closest control point
 	float dist = 10.0e6f;
@@ -240,9 +298,9 @@ unsigned Warp::findControlPoint( const vec2 &pos, float *distance ) const
 
 void Warp::selectClosestControlPoint( const WarpList &warps, const ivec2 &position )
 {
-	WarpRef		warp;
-	unsigned	i, index;
-	float		d, distance = 10.0e6f;
+	WarpRef  warp;
+	unsigned i, index;
+	float    d, distance = 10.0e6f;
 
 	// find warp and distance to closest control point
 	for( WarpConstReverseIter itr = warps.rbegin(); itr != warps.rend(); ++itr ) {
@@ -264,22 +322,26 @@ void Warp::selectClosestControlPoint( const WarpList &warps, const ivec2 &positi
 	}
 }
 
-void Warp::setSize( const WarpList &warps, const ivec2 &size )
+void Warp::setSize( const WarpList &warps, int w, int h )
 {
 	for( WarpConstIter itr = warps.begin(); itr != warps.end(); ++itr )
-		( *itr )->setSize( size );
+		( *itr )->setSize( w, h );
 }
 
 WarpList Warp::readSettings( const DataSourceRef &source )
 {
-	XmlTree		doc;
-	WarpList	warps;
+	XmlTree  doc;
+	WarpList warps;
 
 	// try to load the specified xml file
-	try { doc = XmlTree( source ); }
-	catch( ... ) { return warps; }
+	try {
+		doc = XmlTree( source );
+	}
+	catch( ... ) {
+		return warps;
+	}
 
-	// check if this is a valid file 
+	// check if this is a valid file
 	bool isWarp = doc.hasChild( "warpconfig" );
 	if( !isWarp ) return warps;
 
@@ -318,17 +380,17 @@ WarpList Warp::readSettings( const DataSourceRef &source )
 void Warp::writeSettings( const WarpList &warps, const DataTargetRef &target )
 {
 	// create default <profile> (profiles are not yet supported)
-	XmlTree			profile;
+	XmlTree profile;
 	profile.setTag( "profile" );
 	profile.setAttribute( "name", "default" );
 
-	// 
+	//
 	for( unsigned i = 0; i < warps.size(); ++i ) {
 		// create <map>
-		XmlTree			map;
+		XmlTree map;
 		map.setTag( "map" );
 		map.setAttribute( "id", i + 1 );
-		map.setAttribute( "display", 1 );	// not supported yet
+		map.setAttribute( "display", 1 ); // not supported yet
 
 		// create <warp>
 		map.push_back( warps[i]->toXml() );
@@ -338,7 +400,7 @@ void Warp::writeSettings( const WarpList &warps, const DataTargetRef &target )
 	}
 
 	// create config document and root <warpconfig>
-	XmlTree			doc;
+	XmlTree doc;
 	doc.setTag( "warpconfig" );
 	doc.setAttribute( "version", "1.0" );
 	doc.setAttribute( "profile", "default" );
@@ -352,22 +414,16 @@ void Warp::writeSettings( const WarpList &warps, const DataTargetRef &target )
 
 bool Warp::handleMouseMove( WarpList &warps, MouseEvent &event )
 {
-	// store mouse position 
-	sMouse = event.getPos();
-
 	// find and select closest control point
-	selectClosestControlPoint( warps, sMouse );
+	selectClosestControlPoint( warps, event.getPos() );
 
 	return false;
 }
 
 bool Warp::handleMouseDown( WarpList &warps, MouseEvent &event )
 {
-	// store mouse position 
-	sMouse = event.getPos();
-
 	// find and select closest control point
-	selectClosestControlPoint( warps, sMouse );
+	selectClosestControlPoint( warps, event.getPos() );
 
 	for( WarpReverseIter itr = warps.rbegin(); itr != warps.rend() && !event.isHandled(); ++itr )
 		( *itr )->mouseDown( event );
@@ -418,6 +474,14 @@ bool Warp::handleResize( WarpList &warps )
 	return false;
 }
 
+bool Warp::handleResize( WarpList &warps, const ivec2 &size )
+{
+	for( WarpIter itr = warps.begin(); itr != warps.end(); ++itr )
+		( *itr )->resize( size );
+
+	return false;
+}
+
 void Warp::mouseMove( cinder::app::MouseEvent &event )
 {
 	float distance;
@@ -462,13 +526,14 @@ void Warp::keyDown( KeyEvent &event )
 	// disable keyboard input when not in edit mode
 	if( sIsEditMode ) {
 		if( event.getCode() == KeyEvent::KEY_ESCAPE ) {
-			// gracefully exit edit mode 
+			// gracefully exit edit mode
 			sIsEditMode = false;
 			event.setHandled( true );
 			return;
 		}
 	}
-	else return;
+	else
+		return;
 
 	// do not listen to key input if not selected
 	if( mSelected >= mPoints.size() ) return;
@@ -478,7 +543,7 @@ void Warp::keyDown( KeyEvent &event )
 		// select the next or previous (+SHIFT) control point
 		if( event.isShiftDown() ) {
 			if( mSelected == 0 )
-				mSelected = (int) mPoints.size() - 1;
+				mSelected = (int)mPoints.size() - 1;
 			else
 				--mSelected;
 			selectControlPoint( mSelected );
@@ -493,26 +558,26 @@ void Warp::keyDown( KeyEvent &event )
 		if( mSelected >= mPoints.size() ) return;
 		float step = event.isShiftDown() ? 10.0f : 0.5f;
 		mPoints[mSelected].y -= step / mWindowSize.y;
-		mIsDirty = true; }
-		break;
+		mIsDirty = true;
+	} break;
 	case KeyEvent::KEY_DOWN: {
 		if( mSelected >= mPoints.size() ) return;
 		float step = event.isShiftDown() ? 10.0f : 0.5f;
 		mPoints[mSelected].y += step / mWindowSize.y;
-		mIsDirty = true; }
-		break;
+		mIsDirty = true;
+	} break;
 	case KeyEvent::KEY_LEFT: {
 		if( mSelected >= mPoints.size() ) return;
 		float step = event.isShiftDown() ? 10.0f : 0.5f;
 		mPoints[mSelected].x -= step / mWindowSize.x;
-		mIsDirty = true; }
-		break;
+		mIsDirty = true;
+	} break;
 	case KeyEvent::KEY_RIGHT: {
 		if( mSelected >= mPoints.size() ) return;
 		float step = event.isShiftDown() ? 10.0f : 0.5f;
 		mPoints[mSelected].x += step / mWindowSize.x;
-		mIsDirty = true; }
-		break;
+		mIsDirty = true;
+	} break;
 	case KeyEvent::KEY_MINUS:
 	case KeyEvent::KEY_KP_MINUS:
 		if( mSelected >= mPoints.size() ) return;
@@ -535,44 +600,121 @@ void Warp::keyDown( KeyEvent &event )
 	event.setHandled( true );
 }
 
-void Warp::keyUp( KeyEvent &event )
-{
-}
-
 void Warp::resize()
 {
-	mWindowSize = vec2( getWindowSize() );
+	resize( getWindowSize() );
+}
+
+void Warp::resize( const ivec2 &size )
+{
+	mWindowSize = vec2( size );
 	mIsDirty = true;
 }
 
-void Warp::drawControlPoint( const vec2 &pt, bool selected, bool attached )
+void Warp::queueControlPoint( const vec2 &pt, bool selected, bool attached )
 {
-	float scale = 0.9f + 0.2f * math<float>::sin( 6.0f * float( app::getElapsedSeconds() - sSelectedTime ) );
+	float scale = 0.9f + 0.2f * math<float>::sin( 6.0f * float( app::getElapsedSeconds() - mSelectedTime ) );
 
-	if( selected && attached ) { drawControlPoint( pt, Color( 0.0f, 0.8f, 0.0f ) ); }
-	else if( selected ) { drawControlPoint( pt, Color( 0.9f, 0.9f, 0.9f ), scale ); }
-	else if( attached ) { drawControlPoint( pt, Color( 0.0f, 0.4f, 0.0f ) ); }
-	else { drawControlPoint( pt, Color( 0.4f, 0.4f, 0.4f ) ); }
+	if( selected && attached ) {
+		queueControlPoint( pt, Color( 0.0f, 0.8f, 0.0f ) );
+	}
+	else if( selected ) {
+		queueControlPoint( pt, Color( 0.9f, 0.9f, 0.9f ), scale );
+	}
+	else if( attached ) {
+		queueControlPoint( pt, Color( 0.0f, 0.4f, 0.0f ) );
+	}
+	else {
+		queueControlPoint( pt, Color( 0.4f, 0.4f, 0.4f ) );
+	}
 }
 
-void Warp::drawControlPoint( const vec2 &pt, const Color &clr, float scale )
+void Warp::queueControlPoint( const vec2 &pt, const Color &clr, float scale )
 {
-	// enable alpha blending, disable textures
-	gl::ScopedAlphaBlend blend( false );
-	glDisable( GL_TEXTURE_2D );
-
-	glLineWidth( 1.0f );
-	gl::ScopedColor color( ColorA( 0, 0, 0, 0.25f ) );
-	gl::drawSolidCircle( pt, 15.0f * scale );
-
-	gl::color( clr );
-	gl::drawSolidCircle( pt, 3.0f * scale );
-
-	glLineWidth( 2.0f );
-	gl::color( ColorA( clr, 1.0f ) );
-	gl::drawStrokedCircle( pt, 8.0f * scale );
-	gl::drawStrokedCircle( pt, 12.0f * scale );
+	if( mControlPoints.size() < MAX_NUM_CONTROL_POINTS )
+		mControlPoints.emplace_back( Data( pt, vec4( clr.r, clr.g, clr.b, 1 ), scale ) );
 }
 
+void Warp::drawControlPoints()
+{
+	if( !mInstancedBatch ) {
+		gl::VboMeshRef mesh = gl::VboMesh::create( geom::Circle().radius( 15 ) );
+
+		std::vector<Data> positions;
+		positions.resize( MAX_NUM_CONTROL_POINTS );
+
+		mInstanceDataVbo = gl::Vbo::create( GL_ARRAY_BUFFER, positions.size() * sizeof( Data ), positions.data(), GL_STATIC_DRAW );
+
+		geom::BufferLayout instanceDataLayout;
+		instanceDataLayout.append( geom::Attrib::CUSTOM_0, 4, sizeof( Data ), offsetof( Data, position ), 1 /* per instance */ );
+		instanceDataLayout.append( geom::Attrib::CUSTOM_1, 4, sizeof( Data ), offsetof( Data, color ), 1 /* per instance */ );
+
+		mesh->appendVbo( instanceDataLayout, mInstanceDataVbo );
+
+		try {
+			auto glsl = gl::GlslProg::create(
+			    gl::GlslProg::Format()
+			        .vertex(
+			            "#version 150\n"
+			            ""
+			            "uniform mat4 ciViewProjection;\n"
+			            ""
+			            "in vec4 ciPosition;\n"
+			            "in vec2 ciTexCoord0;\n"
+			            "in vec4 ciColor;\n"
+			            ""
+			            "in vec4 iPositionScale;\n"
+			            "in vec4 iColor;\n"
+			            ""
+			            "out vec2 vertTexCoord0;\n"
+			            "out vec4 vertColor;\n"
+			            ""
+			            "void main(void) {\n"
+			            "	vertTexCoord0 = ciTexCoord0;\n"
+			            "	vertColor = ciColor * iColor;\n"
+			            "	gl_Position = ciViewProjection * vec4( ciPosition.xy * iPositionScale.z + iPositionScale.xy, ciPosition.zw );\n"
+			            "}" )
+			        .fragment(
+			            "#version 150\n"
+			            ""
+			            "in  vec2 vertTexCoord0;\n"
+			            "in  vec4 vertColor;\n"
+			            ""
+			            "out vec4 fragColor;\n"
+			            ""
+			            "void main(void) {\n"
+			            "	vec2 uv = vertTexCoord0 * 2.0 - 1.0;\n"
+			            "	float d = dot( uv, uv );\n"
+			            "	float rim = smoothstep( 0.7, 0.8, d );\n"
+			            "	rim += smoothstep( 0.3, 0.4, d ) - smoothstep( 0.5, 0.6, d );\n"
+			            "	rim += smoothstep( 0.1, 0.0, d );\n"
+			            "	fragColor = mix( vec4( 0.0, 0.0, 0.0, 0.25 ), vertColor, rim );\n"
+			            "}" ) );
+
+			mInstancedBatch = gl::Batch::create( mesh, glsl, { { geom::Attrib::CUSTOM_0, "iPositionScale" }, { geom::Attrib::CUSTOM_1, "iColor" } } );
+		}
+		catch( const std::exception &exc ) {
+			app::console() << exc.what() << std::endl;
+			return;
+		}
+	}
+
+	if( mInstancedBatch && !mControlPoints.empty() ) {
+		// update instance data buffer
+		auto ptr = (Data *)mInstanceDataVbo->mapReplace();
+		for( size_t i = 0; i < mControlPoints.size(); ++i )
+			*ptr++ = mControlPoints[i];
+		mInstanceDataVbo->unmap();
+
+		// render to window
+		//gl::ScopedMatrices matrices;
+		//gl::setMatricesWindow( getWindowSize() );
+
+		// draw instanced
+		mInstancedBatch->drawInstanced( (GLsizei)mControlPoints.size() );
+	}
+
+	mControlPoints.clear();
+}
 }
 } // namespace ph::warping
