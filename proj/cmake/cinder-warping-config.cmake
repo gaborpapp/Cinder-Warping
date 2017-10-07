@@ -17,4 +17,13 @@ if ( NOT TARGET Cinder-Warping )
 
 	target_include_directories( Cinder-Warping PUBLIC "${CINDER_WARPING_INCLUDES}" )
 	target_include_directories( Cinder-Warping SYSTEM BEFORE PUBLIC "${CINDER_PATH}/include" )
+
+    if( NOT TARGET cinder )
+        include( "${CINDER_PATH}/proj/cmake/configure.cmake" )
+        find_package( cinder REQUIRED PATHS
+            "${CINDER_PATH}/${CINDER_LIB_DIRECTORY}"
+            "$ENV{CINDER_PATH}/${CINDER_LIB_DIRECTORY}" )
+    endif()
+
+	target_link_libraries( Cinder-Warping PRIVATE cinder )
 endif()
