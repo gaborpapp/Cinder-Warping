@@ -48,6 +48,8 @@ Warp::Warp( WarpType type )
     , mGamma( 1.0f )
     , mEdges( 0.0f, 0.0f, 1.0f, 1.0f )
     , mExponent( 2.0f )
+	, mHsv( 0.0f, 1.0f, 1.0f )
+	, mBc( 0.0f, 1.0f )
     , mSelectedTime( 0 )
 {
 	mWindowSize = vec2( float( mWidth ), float( mHeight ) );

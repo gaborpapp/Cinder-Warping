@@ -168,6 +168,11 @@ class Warp : public std::enable_shared_from_this<Warp> {
 		mEdges.w = glm::clamp( 1.0f - edges.w, 0.0f, 1.0f );
 	}
 
+	virtual ci::vec3 getHsv() const { return mHsv; }
+	virtual void setHsv( const ci::vec3 &hsv ) { mHsv = hsv; }
+	virtual ci::vec2 getBc() const { return mBc; }
+	virtual void setBc( const ci::vec2 &bc ) { mBc = bc; }
+
 	//! Reset control points to undistorted image.
 	virtual void reset() = 0;
 	//! Setup the warp before drawing its contents.
@@ -275,6 +280,9 @@ class Warp : public std::enable_shared_from_this<Warp> {
 	ci::vec3 mGamma;
 	ci::vec4 mEdges;
 	float    mExponent;
+
+	ci::vec3 mHsv;
+	ci::vec2 mBc;
 
 	//! Time of last control point selection.
 	double mSelectedTime;
