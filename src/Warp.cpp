@@ -180,6 +180,15 @@ XmlTree Warp::toXml() const
 		luminance.setAttribute( "green", mLuminance.y );
 		luminance.setAttribute( "blue", mLuminance.z );
 		blend.push_back( luminance );
+
+		XmlTree postprocess;
+		postprocess.setTag( "postprocess" );
+		postprocess.setAttribute( "hue", mHsv.x );
+		postprocess.setAttribute( "saturation", mHsv.y );
+		postprocess.setAttribute( "value", mHsv.z );
+		postprocess.setAttribute( "brightness", mBc.x );
+		postprocess.setAttribute( "contrast", mBc.y );
+		blend.push_back( postprocess );
 	}
 	xml.push_back( blend );
 
@@ -225,6 +234,15 @@ void Warp::fromXml( const XmlTree &xml )
 			mLuminance.x = luminance->getAttributeValue<float>( "red", mLuminance.x );
 			mLuminance.y = luminance->getAttributeValue<float>( "green", mLuminance.y );
 			mLuminance.z = luminance->getAttributeValue<float>( "blue", mLuminance.z );
+		}
+
+		auto postprocess = blend->find( "postprocess" );
+		if( postprocess != blend->end() ) {
+			mHsv.x = postprocess->getAttributeValue<float>( "hue", mHsv.x );
+			mHsv.y = postprocess->getAttributeValue<float>( "saturation", mHsv.y );
+			mHsv.z = postprocess->getAttributeValue<float>( "value", mHsv.z );
+			mBc.x = postprocess->getAttributeValue<float>( "brightness", mBc.x );
+			mBc.y = postprocess->getAttributeValue<float>( "contrast", mBc.y );
 		}
 	}
 
